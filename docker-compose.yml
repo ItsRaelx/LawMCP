@@ -1,6 +1,6 @@
 services:
   law-mcp:
     build: .
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     restart: unless-stopped

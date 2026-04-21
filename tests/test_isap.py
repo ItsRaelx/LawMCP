@@ -34,23 +34,22 @@ class TestSearchActs:
         assert request.url.params["publisher"] == "DU"
         assert request.url.params["dateFrom"] == "2024-01-01"
         assert request.url.params["limit"] == "5"
-        assert request.url.params["inForce"] == "1"
 
     @pytest.mark.anyio
-    async def test_in_force_default(self, isap_search_response, httpx_mock):
+    async def test_in_force_default_off(self, isap_search_response, httpx_mock):
         httpx_mock.add_response(json=isap_search_response)
         await isap.search_acts(title="kodeks")
 
         request = httpx_mock.get_request()
-        assert request.url.params["inForce"] == "1"
+        assert "inForce" not in request.url.params
 
     @pytest.mark.anyio
-    async def test_in_force_disabled(self, isap_search_response, httpx_mock):
+    async def test_in_force_enabled(self, isap_search_response, httpx_mock):
         httpx_mock.add_response(json=isap_search_response)
-        await isap.search_acts(title="kodeks", in_force=False)
+        await isap.search_acts(title="kodeks", in_force=True)
 
         request = httpx_mock.get_request()
-        assert "inForce" not in request.url.params
+        assert request.url.params["inForce"] == "1"
 
     @pytest.mark.anyio
     async def test_http_error(self, httpx_mock):
@@ -149,10 +148,76 @@ class TestGetActFull:
         assert "Art. 1." in text
 
     @pytest.mark.anyio
-    async def test_text_failure_returns_empty(self, isap_act_detail, isap_references, httpx_mock):
+    async def test_pdf_fallback_when_html_missing(self, isap_references, httpx_mock):
+        import pymupdf
+
+        act_with_pdf = {
+            "address": "WDU20260000420",
+            "displayAddress": "Dz.U. 2026 poz. 420",
+            "title": "Test act",
+            "textHTML": False,
+            "textPDF": True,
+        }
+        doc = pymupdf.open()
+        page = doc.new_page()
+        page.insert_text((72, 72), "Art. 1. From PDF")
+        pdf_bytes = doc.tobytes()
+        doc.close()
+
+        httpx_mock.add_response(
+            url="https://api.sejm.gov.pl/eli/acts/DU/2026/420",
+            json=act_with_pdf,
+        )
+        httpx_mock.add_response(
+            url="https://api.sejm.gov.pl/eli/acts/DU/2026/420/references",
+            json=isap_references,
+        )
+        httpx_mock.add_response(
+            url="https://api.sejm.gov.pl/eli/acts/DU/2026/420/text.html",
+            status_code=404,
+        )
+        httpx_mock.add_response(
+            url="https://api.sejm.gov.pl/eli/acts/DU/2026/420/text.pdf",
+            content=pdf_bytes,
+        )
+
+        act, refs, text = await isap.get_act_full("DU", 2026, 420)
+        assert "Art. 1. From PDF" in text
+
+    @pytest.mark.anyio
+    async def test_both_text_formats_fail(self, isap_references, httpx_mock):
+        act_with_pdf = {
+            "address": "WDU20260000420",
+            "title": "Test act",
+            "textHTML": False,
+            "textPDF": True,
+        }
+        httpx_mock.add_response(
+            url="https://api.sejm.gov.pl/eli/acts/DU/2026/420",
+            json=act_with_pdf,
+        )
+        httpx_mock.add_response(
+            url="https://api.sejm.gov.pl/eli/acts/DU/2026/420/references",
+            json=isap_references,
+        )
+        httpx_mock.add_response(
+            url="https://api.sejm.gov.pl/eli/acts/DU/2026/420/text.html",
+            status_code=404,
+        )
+        httpx_mock.add_response(
+            url="https://api.sejm.gov.pl/eli/acts/DU/2026/420/text.pdf",
+            status_code=404,
+        )
+
+        act, refs, text = await isap.get_act_full("DU", 2026, 420)
+        assert text == ""
+
+    @pytest.mark.anyio
+    async def test_no_pdf_flag_no_fallback(self, isap_act_detail, isap_references, httpx_mock):
+        act_no_pdf = dict(isap_act_detail, textPDF=False)
         httpx_mock.add_response(
             url="https://api.sejm.gov.pl/eli/acts/DU/2024/1673",
-            json=isap_act_detail,
+            json=act_no_pdf,
         )
         httpx_mock.add_response(
             url="https://api.sejm.gov.pl/eli/acts/DU/2024/1673/references",
@@ -164,8 +229,6 @@ class TestGetActFull:
         )
 
         act, refs, text = await isap.get_act_full("DU", 2024, 1673)
-        assert act["address"] == "WDU20240001673"
-        assert len(refs) == 2
         assert text == ""
 
 

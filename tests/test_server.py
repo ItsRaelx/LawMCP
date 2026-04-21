@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -55,7 +56,7 @@ class TestSearchLegislationTool:
             assert "EUR-Lex" in text
 
     @pytest.mark.anyio
-    async def test_in_force_default(self, isap_search_response):
+    async def test_in_force_default_false(self, isap_search_response):
         mock_isap = AsyncMock(return_value=isap_search_response)
         mock_eu = AsyncMock(return_value=[])
         with (
@@ -64,8 +65,35 @@ class TestSearchLegislationTool:
         ):
             await mcp.call_tool("search_legislation", {"query": "test"})
             mock_isap.assert_called_once()
+            assert mock_isap.call_args.kwargs["in_force"] is False
+            assert mock_eu.call_args.kwargs["in_force"] is False
+
+    @pytest.mark.anyio
+    async def test_in_force_filter(self, isap_search_response):
+        mock_isap = AsyncMock(return_value=isap_search_response)
+        mock_eu = AsyncMock(return_value=[])
+        with (
+            patch("law_mcp.server.isap.search_acts", mock_isap),
+            patch("law_mcp.server.eurlex.search_legislation", mock_eu),
+        ):
+            await mcp.call_tool("search_legislation", {"query": "test", "in_force": True})
             assert mock_isap.call_args.kwargs["in_force"] is True
             assert mock_eu.call_args.kwargs["in_force"] is True
+
+    @pytest.mark.anyio
+    async def test_timeout_returns_partial(self, isap_search_response):
+        async def slow_eurlex(**kwargs):
+            await asyncio.sleep(30)
+
+        with (
+            patch("law_mcp.server.isap.search_acts", AsyncMock(return_value=isap_search_response)),
+            patch("law_mcp.server.eurlex.search_legislation", slow_eurlex),
+            patch("law_mcp.server.SEARCH_TIMEOUT", 0.1),
+        ):
+            result = await mcp.call_tool("search_legislation", {"query": "test"})
+            text = _text(result)
+            assert "Polish Legislation (ISAP)" in text
+            assert "timed out" in text
 
 
 class TestReadActTool:

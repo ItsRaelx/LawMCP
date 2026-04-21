@@ -11,6 +11,7 @@ from law_mcp.formatting import (
     format_judgment_search_results,
     format_legislative_process_results,
     html_to_text,
+    pdf_to_text,
     truncate,
 )
 
@@ -128,6 +129,35 @@ class TestFormatActDetail:
     def test_without_references(self, isap_act_detail):
         result = format_act_detail(isap_act_detail, None)
         assert "References:" not in result
+
+
+class TestPdfToText:
+    def test_extracts_text(self):
+        import pymupdf
+
+        doc = pymupdf.open()
+        page = doc.new_page()
+        page.insert_text((72, 72), "Art. 1. Przepisy ogólne")
+        pdf_bytes = doc.tobytes()
+        doc.close()
+
+        result = pdf_to_text(pdf_bytes)
+        assert "Art. 1. Przepisy ogólne" in result
+
+    def test_multiple_pages(self):
+        import pymupdf
+
+        doc = pymupdf.open()
+        page1 = doc.new_page()
+        page1.insert_text((72, 72), "Page one content")
+        page2 = doc.new_page()
+        page2.insert_text((72, 72), "Page two content")
+        pdf_bytes = doc.tobytes()
+        doc.close()
+
+        result = pdf_to_text(pdf_bytes)
+        assert "Page one content" in result
+        assert "Page two content" in result
 
 
 class TestFormatFullAct:

@@ -8,6 +8,8 @@ from law_mcp import eurlex, formatting, isap, saos, sejm
 
 mcp = FastMCP("LawMCP")
 
+SEARCH_TIMEOUT = 15  # seconds per source
+
 
 @mcp.custom_route("/health", methods=["GET"])
 async def health(request: Request) -> JSONResponse:
@@ -22,12 +24,13 @@ async def search_legislation(
     date_from: str | None = None,
     date_to: str | None = None,
     source: str | None = None,
-    in_force: bool = True,
+    in_force: bool = False,
     limit: int = 10,
 ) -> str:
     """Search legislation across Polish (ISAP) and EU (EUR-Lex) databases in parallel.
 
-    By default only returns acts currently in force. Set in_force=False to include repealed acts.
+    Returns all acts by default, including repealed ones (marked with their status).
+    Set in_force=True to show only acts currently in force.
 
     Args:
         query: Full-text search query (used for both ISAP title and EUR-Lex search).
@@ -36,7 +39,7 @@ async def search_legislation(
         date_from: Earliest date (yyyy-MM-dd).
         date_to: Latest date (yyyy-MM-dd).
         source: "PL" for Polish only, "EU" for EU only, or omit for both.
-        in_force: Only return acts currently in force (default: True).
+        in_force: Only return acts currently in force (default: False).
         limit: Max results per source (default: 10).
     """
     search_pl = source is None or source.upper() == "PL"
@@ -44,21 +47,27 @@ async def search_legislation(
 
     tasks = {}
     if search_pl:
-        tasks["pl"] = isap.search_acts(
-            title=title or query,
-            keywords=keywords,
-            date_from=date_from,
-            date_to=date_to,
-            in_force=in_force,
-            limit=limit,
+        tasks["pl"] = asyncio.wait_for(
+            isap.search_acts(
+                title=title or query,
+                keywords=keywords,
+                date_from=date_from,
+                date_to=date_to,
+                in_force=in_force,
+                limit=limit,
+            ),
+            timeout=SEARCH_TIMEOUT,
         )
     if search_eu:
-        tasks["eu"] = eurlex.search_legislation(
-            query=query or title or keywords,
-            date_from=date_from,
-            date_to=date_to,
-            in_force=in_force,
-            limit=limit,
+        tasks["eu"] = asyncio.wait_for(
+            eurlex.search_legislation(
+                query=query or title or keywords,
+                date_from=date_from,
+                date_to=date_to,
+                in_force=in_force,
+                limit=limit,
+            ),
+            timeout=SEARCH_TIMEOUT,
         )
 
     results = dict(zip(tasks.keys(), await asyncio.gather(*tasks.values(), return_exceptions=True)))
@@ -67,17 +76,18 @@ async def search_legislation(
     eu_data = None
     errors = []
 
-    if "pl" in results:
-        if isinstance(results["pl"], BaseException):
-            errors.append(f"ISAP: {results['pl']}")
+    for key, label in [("pl", "ISAP"), ("eu", "EUR-Lex")]:
+        if key not in results:
+            continue
+        val = results[key]
+        if isinstance(val, asyncio.TimeoutError):
+            errors.append(f"{label}: timed out after {SEARCH_TIMEOUT}s")
+        elif isinstance(val, BaseException):
+            errors.append(f"{label}: {val}")
+        elif key == "pl":
+            pl_data = val
         else:
-            pl_data = results["pl"]
-
-    if "eu" in results:
-        if isinstance(results["eu"], BaseException):
-            errors.append(f"EUR-Lex: {results['eu']}")
-        else:
-            eu_data = results["eu"]
+            eu_data = val
 
     return formatting.format_combined_legislation(pl_data, eu_data, errors or None)
 
@@ -142,19 +152,25 @@ async def search_case_law(
 
     tasks = {}
     if search_pl:
-        tasks["pl"] = saos.search_judgments(
-            query=query,
-            date_from=date_from,
-            date_to=date_to,
-            court_type=court_type,
-            page_size=limit,
+        tasks["pl"] = asyncio.wait_for(
+            saos.search_judgments(
+                query=query,
+                date_from=date_from,
+                date_to=date_to,
+                court_type=court_type,
+                page_size=limit,
+            ),
+            timeout=SEARCH_TIMEOUT,
         )
     if search_eu:
-        tasks["eu"] = eurlex.search_cjeu_cases(
-            query=query,
-            date_from=date_from,
-            date_to=date_to,
-            limit=limit,
+        tasks["eu"] = asyncio.wait_for(
+            eurlex.search_cjeu_cases(
+                query=query,
+                date_from=date_from,
+                date_to=date_to,
+                limit=limit,
+            ),
+            timeout=SEARCH_TIMEOUT,
         )
 
     results = dict(zip(tasks.keys(), await asyncio.gather(*tasks.values(), return_exceptions=True)))
@@ -163,17 +179,18 @@ async def search_case_law(
     eu_data = None
     errors = []
 
-    if "pl" in results:
-        if isinstance(results["pl"], BaseException):
-            errors.append(f"SAOS: {results['pl']}")
+    for key, label in [("pl", "SAOS"), ("eu", "CJEU")]:
+        if key not in results:
+            continue
+        val = results[key]
+        if isinstance(val, asyncio.TimeoutError):
+            errors.append(f"{label}: timed out after {SEARCH_TIMEOUT}s")
+        elif isinstance(val, BaseException):
+            errors.append(f"{label}: {val}")
+        elif key == "pl":
+            pl_data = val
         else:
-            pl_data = results["pl"]
-
-    if "eu" in results:
-        if isinstance(results["eu"], BaseException):
-            errors.append(f"CJEU: {results['eu']}")
-        else:
-            eu_data = results["eu"]
+            eu_data = val
 
     return formatting.format_combined_case_law(pl_data, eu_data, errors or None)
 

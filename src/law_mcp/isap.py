@@ -45,7 +45,7 @@ async def search_acts(
     act_type: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
-    in_force: bool = True,
+    in_force: bool = False,
     limit: int = 20,
     offset: int = 0,
     sort: str | None = None,
@@ -90,6 +90,11 @@ async def get_act_text_html(publisher: str, year: int, position: int) -> str:
     return resp.text
 
 
+async def get_act_text_pdf(publisher: str, year: int, position: int) -> bytes:
+    resp = await _request(f"/acts/{publisher}/{year}/{position}/text.pdf")
+    return resp.content
+
+
 async def get_act_with_references(publisher: str, year: int, position: int) -> tuple[dict, list]:
     act, refs = await asyncio.gather(
         get_act(publisher, year, position),
@@ -104,6 +109,8 @@ async def get_act_with_references(publisher: str, year: int, position: int) -> t
 
 
 async def get_act_full(publisher: str, year: int, position: int) -> tuple[dict, list, str]:
+    from law_mcp.formatting import pdf_to_text
+
     act, refs, text = await asyncio.gather(
         get_act(publisher, year, position),
         get_act_references(publisher, year, position),
@@ -116,6 +123,12 @@ async def get_act_full(publisher: str, year: int, position: int) -> tuple[dict, 
         refs = []
     if isinstance(text, BaseException):
         text = ""
+        if isinstance(act, dict) and act.get("textPDF"):
+            try:
+                pdf_bytes = await get_act_text_pdf(publisher, year, position)
+                text = pdf_to_text(pdf_bytes)
+            except Exception:
+                pass
     return act, refs, text
 
 

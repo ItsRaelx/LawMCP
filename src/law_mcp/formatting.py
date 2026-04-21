@@ -1,6 +1,8 @@
 import html
 import re
 
+import pymupdf
+
 
 def html_to_text(raw: str) -> str:
     text = re.sub(r"<br\s*/?>", "\n", raw, flags=re.IGNORECASE)
@@ -11,6 +13,17 @@ def html_to_text(raw: str) -> str:
     text = re.sub(r"<[^>]+>", "", text)
     text = html.unescape(text)
     text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def pdf_to_text(data: bytes) -> str:
+    doc = pymupdf.open(stream=data, filetype="pdf")
+    pages = []
+    for page in doc:
+        pages.append(page.get_text())
+    doc.close()
+    text = "\n".join(pages)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 

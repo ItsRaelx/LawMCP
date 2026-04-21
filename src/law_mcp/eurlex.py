@@ -60,7 +60,7 @@ async def search_legislation(
     date_from: str | None = None,
     date_to: str | None = None,
     doc_type: str | None = None,
-    in_force: bool = True,
+    in_force: bool = False,
     limit: int = 10,
 ) -> list[dict]:
     filters = []

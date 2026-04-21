@@ -81,35 +81,36 @@ async def _search_isap_expanded(
     in_force: bool,
     limit: int,
 ) -> dict:
-    """Search ISAP with query expansion and keyword fallback.
+    """Search ISAP with keyword fallback and word expansion.
 
-    1. Splits multi-word queries into parallel title searches
-    2. If keywords produce 0 results, progressively relaxes them
+    1. Tries the original query first — if it returns results, uses them as-is.
+    2. If 0 results, progressively relaxes keywords.
+    3. If still 0, expands multi-word query into individual word searches.
     """
     search_text = title or query
     words = tokenize(search_text)
-
-    # Build title queries: full phrase + individual words
-    title_queries: list[str | None] = []
-    if search_text:
-        title_queries.append(search_text)
-    if len(words) > 1:
-        title_queries.extend(w for w in words if w != (search_text or "").lower())
-    if not title_queries:
-        title_queries = [None]
-
     kw_chain = _keyword_variants(keywords)
 
-    # Try each keyword variant (most specific first); stop on first hit
+    # Phase 1: try original query with keyword fallback
     for kw in kw_chain:
         result = await _run_isap_queries(
-            title_queries, kw, publisher, act_type,
+            [search_text], kw, publisher, act_type,
             date_from, date_to, in_force, limit,
         )
         if result["items"]:
             return result
 
-    # All variants exhausted — return empty result
+    # Phase 2: expand to individual words (only if original returned nothing)
+    if len(words) > 1:
+        expanded = [w for w in words if w != (search_text or "").lower()]
+        if expanded:
+            result = await _run_isap_queries(
+                expanded, keywords, publisher, act_type,
+                date_from, date_to, in_force, limit,
+            )
+            if result["items"]:
+                return result
+
     return {"items": [], "count": 0, "totalCount": 0, "offset": 0}
 
 
@@ -120,27 +121,28 @@ async def _search_sejm_expanded(
     term: int,
     limit: int,
 ) -> list:
-    """Search Sejm with query expansion — fires parallel queries per word and merges results."""
+    """Search Sejm — tries original query first, expands to individual words only if 0 results."""
     words = tokenize(title)
 
-    title_queries = []
-    if title:
-        title_queries.append(title)
-    if len(words) > 1:
-        title_queries.extend(w for w in words if w != (title or "").lower())
+    # Phase 1: try original query
+    result = await sejm.search_processes(
+        title=title, date_from=date_from, date_to=date_to,
+        term=term, limit=limit,
+    )
+    if result or len(words) <= 1:
+        return result
 
-    if len(title_queries) <= 1:
-        return await sejm.search_processes(
-            title=title, date_from=date_from, date_to=date_to,
-            term=term, limit=limit,
-        )
+    # Phase 2: expand to individual words (only if original returned nothing)
+    expanded = [w for w in words if w != (title or "").lower()]
+    if not expanded:
+        return result
 
     tasks = [
         sejm.search_processes(
             title=q, date_from=date_from, date_to=date_to,
             term=term, limit=limit,
         )
-        for q in title_queries
+        for q in expanded
     ]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -179,6 +181,12 @@ async def search_legislation(
 ) -> str:
     """Search legislation across Polish (ISAP) and EU (EUR-Lex) databases in parallel.
 
+    IMPORTANT: Do not mix languages in a single query. Polish sources (ISAP) only
+    index Polish text — use Polish queries (e.g. "ochrona danych osobowych").
+    EU sources (EUR-Lex) only index English text — use English queries
+    (e.g. "data protection"). When searching both sources, set source="PL" with
+    a Polish query and source="EU" with an English query in separate calls.
+
     Returns all acts by default, including repealed ones (marked with their status).
     Set in_force=True to show only acts currently in force.
     Multi-word queries are automatically expanded for better matching.
@@ -186,6 +194,7 @@ async def search_legislation(
 
     Args:
         query: Full-text search query (used for both ISAP title and EUR-Lex).
+            Use Polish for source="PL", English for source="EU".
         title: Search in Polish act titles only (ISAP-specific).
         keywords: Comma-separated ISAP keywords. Common values:
             "prawo karne", "prawo cywilne", "prawo pracy", "prawo administracyjne",
@@ -305,10 +314,17 @@ async def search_case_law(
 ) -> str:
     """Search case law across Polish courts (SAOS) and EU Court of Justice (CJEU) in parallel.
 
+    IMPORTANT: Do not mix languages in a single query. Polish sources (SAOS) only
+    index Polish text — use Polish queries (e.g. "ochrona danych osobowych").
+    EU sources (CJEU) only index English text — use English queries
+    (e.g. "data protection"). When searching both sources, make separate calls
+    with source="PL" (Polish query) and source="EU" (English query).
+
     Multi-word queries are automatically expanded for better matching.
 
     Args:
         query: Full-text search query.
+            Use Polish for source="PL", English for source="EU".
         date_from: Earliest judgment date (yyyy-MM-dd).
         date_to: Latest judgment date (yyyy-MM-dd).
         court_type: Polish court filter (SAOS only). Values:
@@ -423,8 +439,10 @@ async def search_legislative_process(
     Track bills, amendments, and their progress through the legislative process.
     Multi-word queries are automatically expanded for better matching.
 
+    IMPORTANT: Use Polish language for queries — the Sejm database is entirely in Polish.
+
     Args:
-        title: Search in process titles.
+        title: Search in process titles (use Polish, e.g. "kodeks postępowania").
         date_from: Earliest date (yyyy-MM-dd).
         date_to: Latest date (yyyy-MM-dd).
         term: Sejm term number (default: 10, current term).

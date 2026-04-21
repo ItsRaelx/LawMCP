@@ -97,28 +97,17 @@ class TestSearchLegislationTool:
 
 
     @pytest.mark.anyio
-    async def test_expanded_search_multi_word(self):
-        """Multi-word query fires parallel ISAP queries and merges results."""
-        act1 = {
-            "address": "WDU20240001673",
-            "title": "Kodeks postępowania administracyjnego",
-        }
-        act2 = {
-            "address": "WDU20240001111",
-            "title": "Kodeks cywilny",
-        }
-
-        call_count = 0
+    async def test_no_expansion_when_original_has_results(self):
+        """When original query returns results, do NOT expand to individual words."""
+        act1 = {"address": "WDU20240001673", "title": "Kodeks postępowania administracyjnego"}
+        titles_queried = []
 
         async def mock_search(**kwargs):
-            nonlocal call_count
-            call_count += 1
+            titles_queried.append(kwargs.get("title"))
             title = kwargs.get("title", "")
-            if "kodeks" in title.lower() and "postępowania" not in title.lower():
-                return {"items": [act1, act2], "count": 2, "totalCount": 2, "offset": 0}
-            if "postępowania" in title.lower():
+            if "kodeks postępowania" in title.lower():
                 return {"items": [act1], "count": 1, "totalCount": 1, "offset": 0}
-            return {"items": [act1], "count": 1, "totalCount": 1, "offset": 0}
+            return {"items": [], "count": 0, "totalCount": 0, "offset": 0}
 
         with (
             patch("law_mcp.server.isap.search_acts", mock_search),
@@ -129,9 +118,37 @@ class TestSearchLegislationTool:
                 {"query": "kodeks postępowania", "source": "PL"},
             )
             text = _text(result)
-            # Should have fired multiple queries
-            assert call_count >= 2
-            # Both acts should appear (merged from parallel queries)
+            assert "WDU20240001673" in text
+            # Only the original query should have been sent, no word expansion
+            assert titles_queried == ["kodeks postępowania"]
+
+    @pytest.mark.anyio
+    async def test_expansion_fallback_when_no_results(self):
+        """When original query returns 0 results, expands to individual words."""
+        act1 = {"address": "WDU20240001673", "title": "Kodeks postępowania administracyjnego"}
+        act2 = {"address": "WDU20240001111", "title": "Kodeks cywilny"}
+
+        async def mock_search(**kwargs):
+            title = kwargs.get("title", "")
+            # Full phrase returns nothing
+            if "kodeks postępowania" == title.lower():
+                return {"items": [], "count": 0, "totalCount": 0, "offset": 0}
+            if title.lower() == "kodeks":
+                return {"items": [act1, act2], "count": 2, "totalCount": 2, "offset": 0}
+            if title.lower() == "postępowania":
+                return {"items": [act1], "count": 1, "totalCount": 1, "offset": 0}
+            return {"items": [], "count": 0, "totalCount": 0, "offset": 0}
+
+        with (
+            patch("law_mcp.server.isap.search_acts", mock_search),
+            patch("law_mcp.server.eurlex.search_legislation", AsyncMock(return_value=[])),
+        ):
+            result = await mcp.call_tool(
+                "search_legislation",
+                {"query": "kodeks postępowania", "source": "PL"},
+            )
+            text = _text(result)
+            # Expanded search found results from individual words
             assert "WDU20240001673" in text
             assert "WDU20240001111" in text
 

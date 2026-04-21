@@ -121,9 +121,12 @@ async def get_act_full(publisher: str, year: int, position: int) -> tuple[dict, 
         raise act
     if isinstance(refs, BaseException):
         refs = []
-    if isinstance(text, BaseException):
+    has_html = isinstance(act, dict) and act.get("textHTML")
+    has_pdf = isinstance(act, dict) and act.get("textPDF")
+
+    if isinstance(text, BaseException) or not has_html:
         text = ""
-        if isinstance(act, dict) and act.get("textPDF"):
+        if has_pdf:
             try:
                 pdf_bytes = await get_act_text_pdf(publisher, year, position)
                 text = pdf_to_text(pdf_bytes)

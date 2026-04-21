@@ -225,11 +225,14 @@ def format_act_detail(act: dict, references: list | None = None) -> str:
     return "\n".join(lines)
 
 
-def format_full_act(act: dict, references: list | None = None, text_html: str = "") -> str:
+def format_full_act(act: dict, references: list | None = None, text_content: str = "") -> str:
     detail = format_act_detail(act, references)
-    if not text_html:
+    if not text_content:
         return detail
-    text = html_to_text(text_html)
+    if "<" in text_content:
+        text = html_to_text(text_content)
+    else:
+        text = text_content
     text = truncate(text, 100_000)
     return f"{detail}\n\n--- Full text ---\n{text}"
 

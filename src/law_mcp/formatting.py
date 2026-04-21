@@ -343,8 +343,11 @@ def format_combined_legislation(
     if eu_data is not None:
         sections.append("=== EU Legislation (EUR-Lex) ===\n" + format_eu_legislation_results(eu_data))
 
-    if not sections or (pl_data is None and eu_data is None):
+    if not sections:
         return "No legislation found from any source."
+
+    if pl_data is None and eu_data is None:
+        sections.append("No legislation found from any source.")
 
     return "\n".join(sections)
 
@@ -365,7 +368,10 @@ def format_combined_case_law(
     if eu_data is not None:
         sections.append("=== EU Case Law (CJEU) ===\n" + format_eu_case_law_results(eu_data))
 
-    if not sections or (pl_data is None and eu_data is None):
+    if not sections:
         return "No case law found from any source."
+
+    if pl_data is None and eu_data is None:
+        sections.append("No case law found from any source.")
 
     return "\n".join(sections)

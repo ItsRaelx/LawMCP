@@ -1,5 +1,7 @@
 import httpx
 
+from law_mcp.cache import cached
+
 BASE_URL = "https://www.saos.org.pl/api"
 
 _client: httpx.AsyncClient | None = None
@@ -15,7 +17,7 @@ class APIError(Exception):
 def _get_client() -> httpx.AsyncClient:
     global _client
     if _client is None:
-        _client = httpx.AsyncClient(timeout=30.0)
+        _client = httpx.AsyncClient(timeout=60.0)
     return _client
 
 
@@ -37,6 +39,7 @@ PARAM_MAP = {
 }
 
 
+@cached()
 async def search_judgments(
     query: str | None = None,
     date_from: str | None = None,
@@ -75,6 +78,7 @@ async def search_judgments(
         raise APIError(f"SAOS API request failed: {e}") from e
 
 
+@cached()
 async def get_judgment(judgment_id: int) -> dict:
     try:
         resp = await _get_client().get(f"{BASE_URL}/judgments/{judgment_id}")

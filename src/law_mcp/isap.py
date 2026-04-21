@@ -3,6 +3,8 @@ import re
 
 import httpx
 
+from law_mcp.cache import cached
+
 BASE_URL = "https://api.sejm.gov.pl/eli"
 
 _client: httpx.AsyncClient | None = None
@@ -18,7 +20,7 @@ class APIError(Exception):
 def _get_client() -> httpx.AsyncClient:
     global _client
     if _client is None:
-        _client = httpx.AsyncClient(timeout=30.0)
+        _client = httpx.AsyncClient(timeout=60.0)
     return _client
 
 
@@ -38,6 +40,7 @@ async def _request(path: str, params: dict | None = None) -> httpx.Response:
         raise APIError(f"ISAP API request failed: {e}") from e
 
 
+@cached()
 async def search_acts(
     title: str | None = None,
     keywords: str | None = None,
@@ -72,11 +75,13 @@ async def search_acts(
     return resp.json()
 
 
+@cached()
 async def get_act(publisher: str, year: int, position: int) -> dict:
     resp = await _request(f"/acts/{publisher}/{year}/{position}")
     return resp.json()
 
 
+@cached()
 async def get_act_references(publisher: str, year: int, position: int) -> list:
     resp = await _request(f"/acts/{publisher}/{year}/{position}/references")
     data = resp.json()
@@ -85,11 +90,13 @@ async def get_act_references(publisher: str, year: int, position: int) -> list:
     return data.get("references", data.get("items", []))
 
 
+@cached()
 async def get_act_text_html(publisher: str, year: int, position: int) -> str:
     resp = await _request(f"/acts/{publisher}/{year}/{position}/text.html")
     return resp.text
 
 
+@cached()
 async def get_act_text_pdf(publisher: str, year: int, position: int) -> bytes:
     resp = await _request(f"/acts/{publisher}/{year}/{position}/text.pdf")
     return resp.content

@@ -1,5 +1,7 @@
 import httpx
 
+from law_mcp.cache import cached
+
 BASE_URL = "https://api.sejm.gov.pl/sejm"
 DEFAULT_TERM = 10
 
@@ -16,7 +18,7 @@ class APIError(Exception):
 def _get_client() -> httpx.AsyncClient:
     global _client
     if _client is None:
-        _client = httpx.AsyncClient(timeout=30.0)
+        _client = httpx.AsyncClient(timeout=60.0)
     return _client
 
 
@@ -36,6 +38,7 @@ async def _request(path: str, params: dict | None = None) -> httpx.Response:
         raise APIError(f"Sejm API request failed: {e}") from e
 
 
+@cached()
 async def search_processes(
     title: str | None = None,
     date_from: str | None = None,

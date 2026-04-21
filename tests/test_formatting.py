@@ -264,6 +264,12 @@ class TestFormatCombinedLegislation:
         output = format_combined_legislation(None, None)
         assert "No legislation found" in output
 
+    def test_errors_only_shows_warnings(self):
+        output = format_combined_legislation(None, None, ["EUR-Lex: timed out after 30s"])
+        assert "Warnings:" in output
+        assert "timed out" in output
+        assert "No legislation found" in output
+
 
 class TestFormatCombinedCaseLaw:
     def test_both_sources(self, saos_search_response):
@@ -274,4 +280,10 @@ class TestFormatCombinedCaseLaw:
 
     def test_no_results(self):
         output = format_combined_case_law(None, None)
+        assert "No case law found" in output
+
+    def test_errors_only_shows_warnings(self):
+        output = format_combined_case_law(None, None, ["CJEU: timed out after 30s"])
+        assert "Warnings:" in output
+        assert "timed out" in output
         assert "No case law found" in output

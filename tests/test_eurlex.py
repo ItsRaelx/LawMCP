@@ -39,8 +39,21 @@ class TestSearchLegislation:
 
         request = httpx_mock.get_request()
         assert "query" in request.url.params
-        assert "data protection" in request.url.params["query"]
+        sparql = request.url.params["query"]
+        # Per-word CONTAINS filters instead of exact phrase
+        assert 'CONTAINS(LCASE(?title), "data")' in sparql
+        assert 'CONTAINS(LCASE(?title), "protection")' in sparql
         assert request.headers["accept"] == "application/sparql-results+json"
+
+    @pytest.mark.anyio
+    async def test_single_word_query(self, eurlex_sparql_legislation_response, httpx_mock):
+        httpx_mock.add_response(json=eurlex_sparql_legislation_response)
+
+        await eurlex.search_legislation(query="GDPR")
+
+        request = httpx_mock.get_request()
+        sparql = request.url.params["query"]
+        assert 'CONTAINS(LCASE(?title), "gdpr")' in sparql
 
     @pytest.mark.anyio
     async def test_in_force_filter(self, eurlex_sparql_legislation_response, httpx_mock):

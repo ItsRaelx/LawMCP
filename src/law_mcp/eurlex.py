@@ -2,6 +2,9 @@ import re
 
 import httpx
 
+from law_mcp.cache import cached
+from law_mcp.query import tokenize
+
 SPARQL_ENDPOINT = "https://publications.europa.eu/webapi/rdf/sparql"
 
 _client: httpx.AsyncClient | None = None
@@ -17,7 +20,7 @@ class APIError(Exception):
 def _get_client() -> httpx.AsyncClient:
     global _client
     if _client is None:
-        _client = httpx.AsyncClient(timeout=60.0)
+        _client = httpx.AsyncClient(timeout=120.0)
     return _client
 
 
@@ -55,6 +58,7 @@ def _parse_bindings(raw: dict) -> list[dict]:
     return results
 
 
+@cached()
 async def search_legislation(
     query: str | None = None,
     date_from: str | None = None,
@@ -65,7 +69,12 @@ async def search_legislation(
 ) -> list[dict]:
     filters = []
     if query:
-        filters.append(f'FILTER(CONTAINS(LCASE(?title), LCASE("{_escape_sparql(query)}")))')
+        words = tokenize(query)
+        if words:
+            for word in words:
+                filters.append(f'FILTER(CONTAINS(LCASE(?title), "{_escape_sparql(word)}"))')
+        else:
+            filters.append(f'FILTER(CONTAINS(LCASE(?title), LCASE("{_escape_sparql(query)}")))')
     if date_from:
         filters.append(f'FILTER(?date >= "{_escape_sparql(date_from)}"^^xsd:date)')
     if date_to:
@@ -109,6 +118,7 @@ LIMIT {limit}"""
     return _parse_bindings(raw)
 
 
+@cached()
 async def search_cjeu_cases(
     query: str | None = None,
     date_from: str | None = None,
@@ -117,7 +127,12 @@ async def search_cjeu_cases(
 ) -> list[dict]:
     filters = []
     if query:
-        filters.append(f'FILTER(CONTAINS(LCASE(?title), LCASE("{_escape_sparql(query)}")))')
+        words = tokenize(query)
+        if words:
+            for word in words:
+                filters.append(f'FILTER(CONTAINS(LCASE(?title), "{_escape_sparql(word)}"))')
+        else:
+            filters.append(f'FILTER(CONTAINS(LCASE(?title), LCASE("{_escape_sparql(query)}")))')
     if date_from:
         filters.append(f'FILTER(?date >= "{_escape_sparql(date_from)}"^^xsd:date)')
     if date_to:
@@ -145,6 +160,7 @@ LIMIT {limit}"""
     return _parse_bindings(raw)
 
 
+@cached()
 async def get_document_by_celex(celex: str) -> dict:
     safe = _escape_sparql(celex.strip())
 

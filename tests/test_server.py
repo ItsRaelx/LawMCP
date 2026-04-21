@@ -96,6 +96,99 @@ class TestSearchLegislationTool:
             assert "timed out" in text
 
 
+    @pytest.mark.anyio
+    async def test_expanded_search_multi_word(self):
+        """Multi-word query fires parallel ISAP queries and merges results."""
+        act1 = {
+            "address": "WDU20240001673",
+            "title": "Kodeks postępowania administracyjnego",
+        }
+        act2 = {
+            "address": "WDU20240001111",
+            "title": "Kodeks cywilny",
+        }
+
+        call_count = 0
+
+        async def mock_search(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            title = kwargs.get("title", "")
+            if "kodeks" in title.lower() and "postępowania" not in title.lower():
+                return {"items": [act1, act2], "count": 2, "totalCount": 2, "offset": 0}
+            if "postępowania" in title.lower():
+                return {"items": [act1], "count": 1, "totalCount": 1, "offset": 0}
+            return {"items": [act1], "count": 1, "totalCount": 1, "offset": 0}
+
+        with (
+            patch("law_mcp.server.isap.search_acts", mock_search),
+            patch("law_mcp.server.eurlex.search_legislation", AsyncMock(return_value=[])),
+        ):
+            result = await mcp.call_tool(
+                "search_legislation",
+                {"query": "kodeks postępowania", "source": "PL"},
+            )
+            text = _text(result)
+            # Should have fired multiple queries
+            assert call_count >= 2
+            # Both acts should appear (merged from parallel queries)
+            assert "WDU20240001673" in text
+            assert "WDU20240001111" in text
+
+    @pytest.mark.anyio
+    async def test_keyword_fallback(self):
+        """When combined keywords return 0, relaxes to individual keywords."""
+        act = {"address": "WDU20240001673", "title": "Kodeks karny"}
+
+        async def mock_search(**kwargs):
+            kw = kwargs.get("keywords")
+            # Combined keywords return nothing
+            if kw and "," in kw:
+                return {"items": [], "count": 0, "totalCount": 0, "offset": 0}
+            # Individual keyword works
+            if kw == "prawo karne":
+                return {"items": [act], "count": 1, "totalCount": 1, "offset": 0}
+            return {"items": [], "count": 0, "totalCount": 0, "offset": 0}
+
+        with (
+            patch("law_mcp.server.isap.search_acts", mock_search),
+            patch("law_mcp.server.eurlex.search_legislation", AsyncMock(return_value=[])),
+        ):
+            result = await mcp.call_tool(
+                "search_legislation",
+                {"keywords": "prawo karne, kradzież", "source": "PL"},
+            )
+            text = _text(result)
+            assert "WDU20240001673" in text
+
+    @pytest.mark.anyio
+    async def test_publisher_and_act_type_passed(self, isap_search_response):
+        mock_isap = AsyncMock(return_value=isap_search_response)
+        with (
+            patch("law_mcp.server.isap.search_acts", mock_isap),
+            patch("law_mcp.server.eurlex.search_legislation", AsyncMock(return_value=[])),
+        ):
+            await mcp.call_tool(
+                "search_legislation",
+                {"query": "test", "publisher": "DU", "act_type": "Ustawa", "source": "PL"},
+            )
+            mock_isap.assert_called()
+            call_kwargs = mock_isap.call_args.kwargs
+            assert call_kwargs["publisher"] == "DU"
+            assert call_kwargs["act_type"] == "Ustawa"
+
+    @pytest.mark.anyio
+    async def test_doc_type_passed_to_eurlex(self):
+        mock_eurlex = AsyncMock(return_value=[])
+        with patch("law_mcp.server.eurlex.search_legislation", mock_eurlex):
+            await mcp.call_tool(
+                "search_legislation",
+                {"query": "test", "doc_type": "regulation", "source": "EU"},
+            )
+            mock_eurlex.assert_called_once()
+            assert mock_eurlex.call_args.kwargs["doc_type"] == "regulation"
+
+
 class TestReadActTool:
     @pytest.mark.anyio
     async def test_by_eli(self, isap_act_detail, isap_references):
@@ -154,6 +247,20 @@ class TestSearchCaseLawTool:
             text = _text(result)
             assert "Polish Case Law (SAOS)" in text
             assert "Warnings:" in text
+
+    @pytest.mark.anyio
+    async def test_judgment_type_passed(self, saos_search_response):
+        mock_saos = AsyncMock(return_value=saos_search_response)
+        with (
+            patch("law_mcp.server.saos.search_judgments", mock_saos),
+            patch("law_mcp.server.eurlex.search_cjeu_cases", AsyncMock(return_value=[])),
+        ):
+            await mcp.call_tool(
+                "search_case_law",
+                {"query": "test", "judgment_type": "SENTENCE", "source": "PL"},
+            )
+            mock_saos.assert_called_once()
+            assert mock_saos.call_args.kwargs["judgment_type"] == "SENTENCE"
 
 
 class TestReadJudgmentTool:

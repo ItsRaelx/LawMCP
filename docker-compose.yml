@@ -1,0 +1,5 @@
+services:
+  law-mcp:
+    build: .
+    stdin_open: true
+    restart: unless-stopped

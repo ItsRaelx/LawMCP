@@ -45,11 +45,14 @@ async def search_acts(
     act_type: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    in_force: bool = True,
     limit: int = 20,
     offset: int = 0,
     sort: str | None = None,
 ) -> dict:
     params: dict[str, str | int] = {"limit": limit, "offset": offset}
+    if in_force:
+        params["inForce"] = "1"
     if title:
         params["title"] = title
     if keywords:
@@ -98,6 +101,22 @@ async def get_act_with_references(publisher: str, year: int, position: int) -> t
     if isinstance(refs, BaseException):
         refs = []
     return act, refs
+
+
+async def get_act_full(publisher: str, year: int, position: int) -> tuple[dict, list, str]:
+    act, refs, text = await asyncio.gather(
+        get_act(publisher, year, position),
+        get_act_references(publisher, year, position),
+        get_act_text_html(publisher, year, position),
+        return_exceptions=True,
+    )
+    if isinstance(act, BaseException):
+        raise act
+    if isinstance(refs, BaseException):
+        refs = []
+    if isinstance(text, BaseException):
+        text = ""
+    return act, refs, text
 
 
 _ELI_PATTERN = re.compile(r"^([A-Z]{2})/(\d{4})/(\d+)$")

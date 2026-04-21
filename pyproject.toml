@@ -1,12 +1,12 @@
 [project]
 name = "law-mcp"
 version = "0.1.0"
-description = "MCP server for Polish legal databases (SAOS court judgments & ISAP/ELI legal acts)"
+description = "MCP server for Polish and EU legal databases (ISAP, SAOS, EUR-Lex, Sejm API)"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 authors = [{ name = "ItsRaelx" }]
-keywords = ["mcp", "law", "legal", "poland", "saos", "isap", "eli"]
+keywords = ["mcp", "law", "legal", "poland", "eu", "saos", "isap", "eli", "eurlex", "sejm", "cjeu"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Programming Language :: Python :: 3",

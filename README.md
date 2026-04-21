@@ -1,19 +1,19 @@
 # LawMCP
 
-MCP server for Polish legal databases — [SAOS](https://www.saos.org.pl/) (court judgments) and [ISAP/ELI](https://api.sejm.gov.pl/eli.html) (legal acts).
+MCP server for Polish and EU legal databases — [ISAP](https://api.sejm.gov.pl/eli.html) (legal acts), [SAOS](https://www.saos.org.pl/) (court judgments), [EUR-Lex](https://eur-lex.europa.eu/) (EU legislation & CJEU case law), and [Sejm API](https://api.sejm.gov.pl/sejm.html) (legislative process).
 
-Exposes Polish law data as tools for LLMs via the [Model Context Protocol](https://modelcontextprotocol.io/).
+Exposes legal data as tools for LLMs via the [Model Context Protocol](https://modelcontextprotocol.io/).
 
 ## Tools
 
-| Tool | Description |
-|------|-------------|
-| `search_judgments` | Search court judgments by text, date, court type, judgment type |
-| `get_judgment` | Get full judgment details (text, judges, legal bases, references) |
-| `search_legal_acts` | Search legal acts by title, keywords, publisher, type, date |
-| `get_legal_act` | Get act metadata and references |
-| `get_legal_act_text` | Get full text of a legal act (HTML→plaintext) |
-| `get_legal_act_by_eli` | Look up act by ELI identifier (e.g. `DU/2024/1673`) |
+| Tool | Sources | Description |
+|------|---------|-------------|
+| `search_legislation` | ISAP + EUR-Lex | Search Polish and EU legislation in parallel. Only in-force acts by default. |
+| `read_act` | ISAP | Read a Polish legal act — metadata, references, and full text in one call. |
+| `search_case_law` | SAOS + CJEU | Search Polish and EU court judgments in parallel. |
+| `read_judgment` | SAOS | Read a Polish court judgment by its SAOS ID. |
+| `read_eu_document` | EUR-Lex | Read an EU document by its CELEX number. |
+| `search_legislative_process` | Sejm API | Search legislative processes in the Polish parliament. |
 
 ## Installation
 
@@ -67,9 +67,17 @@ Add to your Claude Desktop config file:
 }
 ```
 
-### Claude Code
+### Remote (Streamable HTTP)
 
-Add the server directly from the project directory:
+Run the server with HTTP transport for remote access:
+
+```bash
+law-mcp --transport streamable-http --port 8000
+```
+
+Connect via `http://host:8000/mcp`. Set `LAWMCP_ALLOWED_HOSTS` environment variable to restrict allowed Host headers (e.g. `LAWMCP_ALLOWED_HOSTS=lawmcp.example.com`).
+
+### Claude Code
 
 ```bash
 claude mcp add law-mcp -- python -m law_mcp
@@ -83,26 +91,8 @@ claude mcp add law-mcp -- docker run --rm -i law-mcp
 
 ### MCP Inspector
 
-Test and debug the server interactively with the [MCP Inspector](https://github.com/modelcontextprotocol/inspector):
-
 ```bash
 mcp dev src/law_mcp/server.py
-```
-
-This opens a web UI where you can call each tool, inspect parameters, and see responses.
-
-### Direct (stdio)
-
-Run the server directly — it communicates via stdin/stdout using the MCP protocol:
-
-```bash
-law-mcp
-```
-
-Or:
-
-```bash
-python -m law_mcp
 ```
 
 ### Docker Compose
@@ -113,73 +103,92 @@ docker compose up -d
 
 ## Tool Details
 
-### search_judgments
+### search_legislation
 
-Search court judgments in the SAOS database.
+Search legislation across Polish (ISAP) and EU (EUR-Lex) databases in parallel. By default only returns acts currently in force.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `query` | string | — | Full-text search query |
+| `title` | string | — | Search in Polish act titles (ISAP-specific) |
+| `keywords` | string | — | Comma-separated keywords (ISAP-specific) |
 | `date_from` | string | — | Earliest date (`yyyy-MM-dd`) |
 | `date_to` | string | — | Latest date (`yyyy-MM-dd`) |
-| `court_type` | string | — | `COMMON`, `SUPREME`, `ADMINISTRATIVE`, `CONSTITUTIONAL_TRIBUNAL`, `NATIONAL_APPEAL_CHAMBER` |
-| `judgment_type` | string | — | `SENTENCE`, `DECISION`, `RESOLUTION`, `REASONS` |
-| `sort_by` | string | — | `JUDGMENT_DATE` or `DATABASE_ID` |
-| `sort_dir` | string | — | `ASC` or `DESC` |
-| `page_size` | int | 10 | Results per page (1–100) |
-| `page_number` | int | 0 | Page number |
+| `source` | string | — | `PL` (Polish only), `EU` (EU only), or omit for both |
+| `in_force` | bool | true | Only return acts currently in force |
+| `limit` | int | 10 | Max results per source |
 
-### get_judgment
+### read_act
 
-Get full details of a single judgment by its SAOS ID (returned by `search_judgments`).
+Read a Polish legal act — returns metadata, references, and full text in one call. Accepts either an ELI identifier or publisher+year+position.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `judgment_id` | int | Numeric judgment ID |
+| `eli` | string | ELI identifier, e.g. `DU/2024/1673` |
+| `publisher` | string | `DU` (Dziennik Ustaw) or `MP` (Monitor Polski) |
+| `year` | int | Publication year |
+| `position` | int | Position number in the journal |
 
-### search_legal_acts
+### search_case_law
 
-Search legal acts in the ISAP database.
+Search case law across Polish courts (SAOS) and EU Court of Justice (CJEU) in parallel.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `title` | string | — | Search in act titles |
-| `keywords` | string | — | Comma-separated keywords |
-| `publisher` | string | — | `DU` (Dziennik Ustaw) or `MP` (Monitor Polski) |
-| `act_type` | string | — | `Ustawa`, `Rozporządzenie`, `Obwieszczenie`, `Uchwała` |
+| `query` | string | — | Full-text search query |
+| `date_from` | string | — | Earliest judgment date (`yyyy-MM-dd`) |
+| `date_to` | string | — | Latest judgment date (`yyyy-MM-dd`) |
+| `court_type` | string | — | Polish court filter: `COMMON`, `SUPREME`, `ADMINISTRATIVE`, `CONSTITUTIONAL_TRIBUNAL`, `NATIONAL_APPEAL_CHAMBER` |
+| `source` | string | — | `PL` (Polish only), `EU` (EU only), or omit for both |
+| `limit` | int | 10 | Max results per source |
+
+### read_judgment
+
+Read a Polish court judgment by its SAOS ID. Returns the full text, judges, legal bases, and referenced regulations.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `judgment_id` | int | Numeric judgment ID from SAOS |
+
+### read_eu_document
+
+Read an EU legal document by its CELEX number from EUR-Lex. Works for regulations, directives, decisions, and CJEU judgments.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `celex` | string | CELEX identifier, e.g. `32016R0679` (GDPR) or `62014CJ0362` (Schrems) |
+
+### search_legislative_process
+
+Search legislative processes in the Polish Sejm (parliament).
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `title` | string | — | Search in process titles |
 | `date_from` | string | — | Earliest date (`yyyy-MM-dd`) |
 | `date_to` | string | — | Latest date (`yyyy-MM-dd`) |
-| `limit` | int | 20 | Max results (1–500) |
-| `offset` | int | 0 | Pagination offset |
-| `sort` | string | — | Sort field (e.g. `date`, `-date` for descending) |
+| `term` | int | 10 | Sejm term number (current: 10) |
+| `limit` | int | 20 | Max results |
 
-### get_legal_act
+## Data Sources
 
-Get act metadata and references by publisher, year, and position.
+| Source | Type | API |
+|--------|------|-----|
+| [ISAP/ELI](https://api.sejm.gov.pl/eli.html) | Polish legal acts (Dziennik Ustaw, Monitor Polski) | REST/JSON |
+| [SAOS](https://www.saos.org.pl/help/index.php/dokumentacja-api) | Polish court judgments (500k+ records) | REST/JSON |
+| [EUR-Lex CELLAR](https://op.europa.eu/en/web/cellar) | EU legislation and CJEU case law | SPARQL |
+| [Sejm API](https://api.sejm.gov.pl/sejm.html) | Polish legislative process | REST/JSON |
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `publisher` | string | `DU` or `MP` |
-| `year` | int | Publication year |
-| `position` | int | Position number |
+All APIs are public and require no authentication.
 
-### get_legal_act_text
+## Future Integrations
 
-Get the full text of a legal act as plain text. Long acts are truncated at 100,000 characters.
+The following commercial legal information systems could be integrated with API keys:
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `publisher` | string | `DU` or `MP` |
-| `year` | int | Publication year |
-| `position` | int | Position number |
+- **LEX (Wolters Kluwer)** — commentaries, glosses, consolidated texts with annotations
+- **Legalis (C.H. Beck)** — legal commentaries, journal articles, case law annotations
 
-### get_legal_act_by_eli
-
-Look up an act by its ELI identifier — parses the string and returns full details with references.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `eli` | string | ELI in format `PUBLISHER/YEAR/POSITION` (e.g. `DU/2024/1673`) |
+These require commercial subscriptions and are not currently supported.
 
 ## Development
 
@@ -188,13 +197,6 @@ pip install -e ".[dev]"
 pytest -v
 ruff check src/ tests/
 ```
-
-## Data Sources
-
-- **SAOS** — System Analizy Orzeczeń Sądowych ([API docs](https://www.saos.org.pl/help/index.php/dokumentacja-api))
-- **ISAP/ELI** — Internetowy System Aktów Prawnych ([API docs](https://api.sejm.gov.pl/eli.html))
-
-Both APIs are public and require no authentication.
 
 ## License
 

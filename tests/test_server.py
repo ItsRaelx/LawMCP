@@ -10,90 +10,185 @@ def _text(result: tuple) -> str:
     return content_list[0].text
 
 
-class TestSearchJudgmentsTool:
+class TestSearchLegislationTool:
     @pytest.mark.anyio
-    async def test_returns_formatted_text(self, saos_search_response):
-        mock = AsyncMock(return_value=saos_search_response)
-        with patch("law_mcp.server.saos.search_judgments", mock):
-            result = await mcp.call_tool("search_judgments", {"query": "kradzież"})
+    async def test_both_sources(self, isap_search_response):
+        eu_results = [{"celex": "32016R0679", "title": "GDPR", "date": "2016-04-27", "type": "REG"}]
+        with (
+            patch("law_mcp.server.isap.search_acts", AsyncMock(return_value=isap_search_response)),
+            patch("law_mcp.server.eurlex.search_legislation", AsyncMock(return_value=eu_results)),
+        ):
+            result = await mcp.call_tool("search_legislation", {"query": "data protection"})
             text = _text(result)
-            assert "Found 1 judgments" in text
-            assert "II K 123/24" in text
+            assert "Polish Legislation (ISAP)" in text
+            assert "EU Legislation (EUR-Lex)" in text
 
     @pytest.mark.anyio
-    async def test_api_error_returns_message(self):
-        from law_mcp.saos import APIError
-
-        mock = AsyncMock(side_effect=APIError("SAOS API returned 500", 500))
-        with patch("law_mcp.server.saos.search_judgments", mock):
-            result = await mcp.call_tool("search_judgments", {"query": "test"})
+    async def test_pl_only(self, isap_search_response):
+        with patch("law_mcp.server.isap.search_acts", AsyncMock(return_value=isap_search_response)):
+            result = await mcp.call_tool("search_legislation", {"query": "kodeks", "source": "PL"})
             text = _text(result)
-            assert "Error" in text
-            assert "500" in text
+            assert "Polish Legislation (ISAP)" in text
+            assert "EU Legislation" not in text
 
-
-class TestGetJudgmentTool:
     @pytest.mark.anyio
-    async def test_returns_detail(self, saos_judgment_detail):
-        mock = AsyncMock(return_value=saos_judgment_detail["data"])
-        with patch("law_mcp.server.saos.get_judgment", mock):
-            result = await mcp.call_tool("get_judgment", {"judgment_id": 12345})
+    async def test_eu_only(self):
+        eu_results = [{"celex": "32016R0679", "title": "GDPR", "date": "2016-04-27", "type": "REG"}]
+        with patch("law_mcp.server.eurlex.search_legislation", AsyncMock(return_value=eu_results)):
+            result = await mcp.call_tool("search_legislation", {"query": "data", "source": "EU"})
             text = _text(result)
-            assert "Jan Kowalski" in text
-            assert "WYROK" in text
+            assert "EU Legislation (EUR-Lex)" in text
+            assert "Polish Legislation" not in text
 
-
-class TestSearchLegalActsTool:
     @pytest.mark.anyio
-    async def test_returns_formatted_text(self, isap_search_response):
-        mock = AsyncMock(return_value=isap_search_response)
-        with patch("law_mcp.server.isap.search_acts", mock):
-            result = await mcp.call_tool("search_legal_acts", {"title": "kodeks"})
+    async def test_partial_failure(self, isap_search_response):
+        from law_mcp.eurlex import APIError
+
+        with (
+            patch("law_mcp.server.isap.search_acts", AsyncMock(return_value=isap_search_response)),
+            patch("law_mcp.server.eurlex.search_legislation", AsyncMock(side_effect=APIError("timeout"))),
+        ):
+            result = await mcp.call_tool("search_legislation", {"query": "kodeks"})
             text = _text(result)
-            assert "Found 1 legal acts" in text
+            assert "Polish Legislation (ISAP)" in text
+            assert "Warnings:" in text
+            assert "EUR-Lex" in text
+
+    @pytest.mark.anyio
+    async def test_in_force_default(self, isap_search_response):
+        mock_isap = AsyncMock(return_value=isap_search_response)
+        mock_eu = AsyncMock(return_value=[])
+        with (
+            patch("law_mcp.server.isap.search_acts", mock_isap),
+            patch("law_mcp.server.eurlex.search_legislation", mock_eu),
+        ):
+            await mcp.call_tool("search_legislation", {"query": "test"})
+            mock_isap.assert_called_once()
+            assert mock_isap.call_args.kwargs["in_force"] is True
+            assert mock_eu.call_args.kwargs["in_force"] is True
+
+
+class TestReadActTool:
+    @pytest.mark.anyio
+    async def test_by_eli(self, isap_act_detail, isap_references):
+        mock = AsyncMock(return_value=(isap_act_detail, isap_references, "<p>Art. 1.</p>"))
+        with patch("law_mcp.server.isap.get_act_full", mock):
+            result = await mcp.call_tool("read_act", {"eli": "DU/2024/1673"})
+            text = _text(result)
             assert "Kodeks" in text
-
-
-class TestGetLegalActTool:
-    @pytest.mark.anyio
-    async def test_returns_detail_with_refs(self, isap_act_detail, isap_references):
-        mock = AsyncMock(return_value=(isap_act_detail, isap_references))
-        with patch("law_mcp.server.isap.get_act_with_references", mock):
-            result = await mcp.call_tool(
-                "get_legal_act", {"publisher": "DU", "year": 2024, "position": 1673}
-            )
-            text = _text(result)
-            assert "Kodeks" in text
-            assert "Zmienia" in text
-
-
-class TestGetLegalActTextTool:
-    @pytest.mark.anyio
-    async def test_returns_plain_text(self):
-        html = "<html><body><p>Art. 1. Ustawa reguluje...</p></body></html>"
-        with patch("law_mcp.server.isap.get_act_text_html", AsyncMock(return_value=html)):
-            result = await mcp.call_tool(
-                "get_legal_act_text", {"publisher": "DU", "year": 2024, "position": 1673}
-            )
-            text = _text(result)
             assert "Art. 1." in text
-            assert "<p>" not in text
 
-
-class TestGetLegalActByEliTool:
     @pytest.mark.anyio
-    async def test_valid_eli(self, isap_act_detail, isap_references):
-        mock = AsyncMock(return_value=(isap_act_detail, isap_references))
-        with patch("law_mcp.server.isap.get_act_with_references", mock):
-            result = await mcp.call_tool("get_legal_act_by_eli", {"eli": "DU/2024/1673"})
+    async def test_by_publisher_year_position(self, isap_act_detail, isap_references):
+        mock = AsyncMock(return_value=(isap_act_detail, isap_references, ""))
+        with patch("law_mcp.server.isap.get_act_full", mock):
+            result = await mcp.call_tool(
+                "read_act", {"publisher": "DU", "year": 2024, "position": 1673}
+            )
             text = _text(result)
             assert "Kodeks" in text
 
     @pytest.mark.anyio
     async def test_invalid_eli(self):
-        result = await mcp.call_tool("get_legal_act_by_eli", {"eli": "invalid"})
+        result = await mcp.call_tool("read_act", {"eli": "invalid"})
         text = _text(result)
         assert "Invalid ELI format" in text
+
+    @pytest.mark.anyio
+    async def test_missing_params(self):
+        result = await mcp.call_tool("read_act", {})
+        text = _text(result)
+        assert "Provide either" in text
+
+
+class TestSearchCaseLawTool:
+    @pytest.mark.anyio
+    async def test_both_sources(self, saos_search_response):
+        eu_results = [{"celex": "62014CJ0362", "title": "Schrems", "date": "2015-10-06", "ecli": "ECLI:EU:C:2015:650"}]
+        with (
+            patch("law_mcp.server.saos.search_judgments", AsyncMock(return_value=saos_search_response)),
+            patch("law_mcp.server.eurlex.search_cjeu_cases", AsyncMock(return_value=eu_results)),
+        ):
+            result = await mcp.call_tool("search_case_law", {"query": "data protection"})
+            text = _text(result)
+            assert "Polish Case Law (SAOS)" in text
+            assert "EU Case Law (CJEU)" in text
+
+    @pytest.mark.anyio
+    async def test_partial_failure(self, saos_search_response):
+        from law_mcp.eurlex import APIError
+
+        with (
+            patch("law_mcp.server.saos.search_judgments", AsyncMock(return_value=saos_search_response)),
+            patch("law_mcp.server.eurlex.search_cjeu_cases", AsyncMock(side_effect=APIError("timeout"))),
+        ):
+            result = await mcp.call_tool("search_case_law", {"query": "test"})
+            text = _text(result)
+            assert "Polish Case Law (SAOS)" in text
+            assert "Warnings:" in text
+
+
+class TestReadJudgmentTool:
+    @pytest.mark.anyio
+    async def test_returns_detail(self, saos_judgment_detail):
+        mock = AsyncMock(return_value=saos_judgment_detail["data"])
+        with patch("law_mcp.server.saos.get_judgment", mock):
+            result = await mcp.call_tool("read_judgment", {"judgment_id": 12345})
+            text = _text(result)
+            assert "Jan Kowalski" in text
+            assert "WYROK" in text
+
+    @pytest.mark.anyio
+    async def test_api_error(self):
+        from law_mcp.saos import APIError
+
+        mock = AsyncMock(side_effect=APIError("SAOS API returned 404", 404))
+        with patch("law_mcp.server.saos.get_judgment", mock):
+            result = await mcp.call_tool("read_judgment", {"judgment_id": 99999})
+            text = _text(result)
+            assert "Error" in text
+
+
+class TestReadEuDocumentTool:
+    @pytest.mark.anyio
+    async def test_returns_detail(self):
+        doc = {"celex": "32016R0679", "title": "GDPR Regulation", "type": "REG", "date": "2016-04-27"}
+        with patch("law_mcp.server.eurlex.get_document_by_celex", AsyncMock(return_value=doc)):
+            result = await mcp.call_tool("read_eu_document", {"celex": "32016R0679"})
+            text = _text(result)
+            assert "32016R0679" in text
+            assert "GDPR" in text
+
+    @pytest.mark.anyio
+    async def test_not_found(self):
+        from law_mcp.eurlex import APIError
+
+        mock = AsyncMock(side_effect=APIError("No document found for CELEX: INVALID", 404))
+        with patch("law_mcp.server.eurlex.get_document_by_celex", mock):
+            result = await mcp.call_tool("read_eu_document", {"celex": "INVALID"})
+            text = _text(result)
+            assert "Error" in text
+
+
+class TestSearchLegislativeProcessTool:
+    @pytest.mark.anyio
+    async def test_returns_results(self, sejm_process_search_response):
+        mock = AsyncMock(return_value=sejm_process_search_response)
+        with patch("law_mcp.server.sejm.search_processes", mock):
+            result = await mcp.call_tool("search_legislative_process", {"title": "kodeks"})
+            text = _text(result)
+            assert "Found 1 legislative processes" in text
+            assert "Rządowy projekt" in text
+
+    @pytest.mark.anyio
+    async def test_api_error(self):
+        from law_mcp.sejm import APIError
+
+        mock = AsyncMock(side_effect=APIError("Sejm API returned 503", 503))
+        with patch("law_mcp.server.sejm.search_processes", mock):
+            result = await mcp.call_tool("search_legislative_process", {"title": "test"})
+            text = _text(result)
+            assert "Error" in text
 
 
 class TestToolListing:
@@ -102,10 +197,10 @@ class TestToolListing:
         tools = await mcp.list_tools()
         names = {t.name for t in tools}
         assert names == {
-            "search_judgments",
-            "get_judgment",
-            "search_legal_acts",
-            "get_legal_act",
-            "get_legal_act_text",
-            "get_legal_act_by_eli",
+            "search_legislation",
+            "read_act",
+            "search_case_law",
+            "read_judgment",
+            "read_eu_document",
+            "search_legislative_process",
         }

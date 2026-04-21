@@ -1,8 +1,15 @@
 from law_mcp.formatting import (
     format_act_detail,
     format_act_search_results,
+    format_combined_case_law,
+    format_combined_legislation,
+    format_eu_case_law_results,
+    format_eu_document_detail,
+    format_eu_legislation_results,
+    format_full_act,
     format_judgment_detail,
     format_judgment_search_results,
+    format_legislative_process_results,
     html_to_text,
     truncate,
 )
@@ -121,3 +128,120 @@ class TestFormatActDetail:
     def test_without_references(self, isap_act_detail):
         result = format_act_detail(isap_act_detail, None)
         assert "References:" not in result
+
+
+class TestFormatFullAct:
+    def test_includes_text(self, isap_act_detail, isap_references):
+        result = format_full_act(isap_act_detail, isap_references, "<p>Art. 1. Przepisy ogólne</p>")
+        assert "Kodeks" in result
+        assert "References:" in result
+        assert "--- Full text ---" in result
+        assert "Art. 1. Przepisy ogólne" in result
+
+    def test_without_text(self, isap_act_detail):
+        result = format_full_act(isap_act_detail, None, "")
+        assert "Kodeks" in result
+        assert "--- Full text ---" not in result
+
+
+class TestFormatEuLegislationResults:
+    def test_formats_results(self):
+        results = [
+            {"celex": "32016R0679", "title": "GDPR Regulation", "date": "2016-04-27", "type": "REG"},
+        ]
+        output = format_eu_legislation_results(results)
+        assert "Found 1 EU legislative acts" in output
+        assert "32016R0679" in output
+        assert "GDPR" in output
+        assert "REG" in output
+
+    def test_empty_results(self):
+        assert "No EU legislation found" in format_eu_legislation_results([])
+
+
+class TestFormatEuCaseLawResults:
+    def test_formats_results(self):
+        results = [
+            {
+                "celex": "62014CJ0362",
+                "title": "Schrems v DPC",
+                "date": "2015-10-06",
+                "ecli": "ECLI:EU:C:2015:650",
+            },
+        ]
+        output = format_eu_case_law_results(results)
+        assert "Found 1 CJEU judgments" in output
+        assert "62014CJ0362" in output
+        assert "Schrems" in output
+        assert "ECLI:EU:C:2015:650" in output
+
+    def test_empty_results(self):
+        assert "No EU case law found" in format_eu_case_law_results([])
+
+
+class TestFormatEuDocumentDetail:
+    def test_formats_detail(self):
+        data = {
+            "celex": "32016R0679",
+            "title": "GDPR Regulation",
+            "date": "2016-04-27",
+            "type": "REG",
+            "inForce": "INFORCE",
+        }
+        output = format_eu_document_detail(data)
+        assert "32016R0679" in output
+        assert "GDPR" in output
+        assert "INFORCE" in output
+
+
+class TestFormatLegislativeProcessResults:
+    def test_formats_results(self, sejm_process_search_response):
+        output = format_legislative_process_results(sejm_process_search_response)
+        assert "Found 1 legislative processes" in output
+        assert "Rządowy projekt" in output
+        assert "2024-03-01" in output
+
+    def test_empty_results(self):
+        assert "No legislative processes found" in format_legislative_process_results([])
+
+
+class TestFormatCombinedLegislation:
+    def test_both_sources(self, isap_search_response):
+        eu_data = [{"celex": "32016R0679", "title": "GDPR", "date": "2016-04-27", "type": "REG"}]
+        output = format_combined_legislation(isap_search_response, eu_data)
+        assert "Polish Legislation (ISAP)" in output
+        assert "EU Legislation (EUR-Lex)" in output
+        assert "Kodeks" in output
+        assert "GDPR" in output
+
+    def test_pl_only(self, isap_search_response):
+        output = format_combined_legislation(isap_search_response, None)
+        assert "Polish Legislation (ISAP)" in output
+        assert "EU Legislation" not in output
+
+    def test_eu_only(self):
+        eu_data = [{"celex": "32016R0679", "title": "GDPR", "date": "2016-04-27", "type": "REG"}]
+        output = format_combined_legislation(None, eu_data)
+        assert "EU Legislation (EUR-Lex)" in output
+        assert "Polish Legislation" not in output
+
+    def test_with_errors(self, isap_search_response):
+        output = format_combined_legislation(isap_search_response, None, ["EUR-Lex: timeout"])
+        assert "Warnings:" in output
+        assert "EUR-Lex: timeout" in output
+
+    def test_no_results(self):
+        output = format_combined_legislation(None, None)
+        assert "No legislation found" in output
+
+
+class TestFormatCombinedCaseLaw:
+    def test_both_sources(self, saos_search_response):
+        eu_data = [{"celex": "62014CJ0362", "title": "Schrems", "date": "2015-10-06", "ecli": "ECLI:EU:C:2015:650"}]
+        output = format_combined_case_law(saos_search_response, eu_data)
+        assert "Polish Case Law (SAOS)" in output
+        assert "EU Case Law (CJEU)" in output
+
+    def test_no_results(self):
+        output = format_combined_case_law(None, None)
+        assert "No case law found" in output

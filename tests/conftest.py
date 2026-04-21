@@ -104,3 +104,80 @@ def isap_references():
         {"type": "Zmienia", "title": "Ustawa z dnia 10 maja 2018 r.", "address": "WDU20180001000"},
         {"type": "Zmieniony przez", "title": "Ustawa z dnia 7 lipca 2023 r.", "address": "WDU20230001234"},
     ]
+
+
+@pytest.fixture()
+def sejm_process_search_response():
+    return [
+        {
+            "number": "1",
+            "term": 10,
+            "title": "Rządowy projekt ustawy o zmianie ustawy - Kodeks postępowania administracyjnego",
+            "description": "Zmiana dotycząca postępowania administracyjnego",
+            "documentDate": "2024-03-01",
+            "changeDate": "2024-06-15",
+            "processStartDate": "2024-03-01",
+            "webGeneratedDate": "2024-06-15",
+            "principlesOfUrgency": False,
+            "urgencyWithdrawDate": None,
+        }
+    ]
+
+
+@pytest.fixture()
+def eurlex_sparql_legislation_response():
+    return {
+        "results": {
+            "bindings": [
+                {
+                    "celex": {"type": "literal", "value": "32016R0679"},
+                    "title": {
+                        "type": "literal",
+                        "value": "Regulation (EU) 2016/679 of the European Parliament and of the Council"
+                        " on the protection of natural persons with regard to the processing of personal data"
+                        " (General Data Protection Regulation)",
+                    },
+                    "date": {"type": "literal", "value": "2016-04-27"},
+                    "type": {"type": "literal", "value": "REG"},
+                }
+            ]
+        }
+    }
+
+
+@pytest.fixture()
+def eurlex_sparql_caselaw_response():
+    return {
+        "results": {
+            "bindings": [
+                {
+                    "celex": {"type": "literal", "value": "62014CJ0362"},
+                    "title": {
+                        "type": "literal",
+                        "value": "Maximillian Schrems v Data Protection Commissioner",
+                    },
+                    "date": {"type": "literal", "value": "2015-10-06"},
+                    "ecli": {"type": "literal", "value": "ECLI:EU:C:2015:650"},
+                }
+            ]
+        }
+    }
+
+
+@pytest.fixture()
+def eurlex_document_detail_response():
+    return {
+        "results": {
+            "bindings": [
+                {
+                    "title": {
+                        "type": "literal",
+                        "value": "Regulation (EU) 2016/679 (General Data Protection Regulation)",
+                    },
+                    "date": {"type": "literal", "value": "2016-04-27"},
+                    "type": {"type": "literal", "value": "REG"},
+                    "inForce": {"type": "literal", "value": "INFORCE"},
+                }
+            ]
+        }
+    }

@@ -1,8 +1,15 @@
 from mcp.server.fastmcp import FastMCP
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from law_mcp import formatting, isap, saos
 
 mcp = FastMCP("LawMCP")
+
+
+@mcp.custom_route("/health", methods=["GET"])
+async def health(request: Request) -> JSONResponse:
+    return JSONResponse({"status": "ok"})
 
 
 @mcp.tool()

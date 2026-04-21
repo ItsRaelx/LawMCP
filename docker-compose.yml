@@ -1,5 +1,6 @@
 services:
   law-mcp:
     build: .
-    stdin_open: true
+    ports:
+      - "8000:8000"
     restart: unless-stopped
